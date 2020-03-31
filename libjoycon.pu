@@ -1,0 +1,49 @@
+@startuml libjoycon
+autonumber "<b>[#]"
+
+actor interface
+control Controller
+control Session
+control PushThread
+control PollThread
+boundary HID
+
+interface -[#Green]> Controller         ++: send cmd
+== begin send cmd ==
+Controller -[#Green]> Session           ++: lock push
+Controller -[#Green]> Session             : Transmit(retry,buffer,inspector,async)
+Session -[#Green]> Session              ++: is_alive ?
+
+opt is_alive == false
+    Session -[#Red]> Controller         ++: throw runtime_error
+end
+...
+Session -[#Green]> Session              ++: task_pool_get
+alt async == false
+    Session -[#Green]> Session          ++: push_sem_wait
+    Session -[#Green]> HID              ++: Send buffer
+    return size / errno
+    return push_sem_post
+    opt inspector != nullptr            
+        Session -[#Green]> PollThread   ++:
+        PollThread -[#Green]> HID       ++: recv
+        return recv buffer
+        loop retry
+            PollThread -[#Green]> PollThread    ++: inspect
+            return DONE / WAINTING /  AGAIN
+        end
+        PollThread --[#Orange]> Controller --: DONE / TIMEDOUT / ABORT
+    end
+    Session -[#Orange]> Controller      --: ERROR / DONE
+else async == true
+    Session -[#Green]> Session      ++  : push_sem_wait
+    Session -[#Green]> Session          : memmove push_buffer
+    Session -[#Green]> PushThread   ++  : append TaskSp
+    PushThread -[#Green]> HID       ++  : Send buffer
+    return size / errno
+    return push_sem_post
+    Session -[#Orange]> Controller   --  : ERROR / DONE
+end
+Controller --> interface                --: send cmd done
+
+@enduml
